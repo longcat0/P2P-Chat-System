@@ -2,10 +2,11 @@ import java.io.*;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.Scanner;
+import java.util.Vector;
+
 import java.util.HashMap;
-
-
-
+import java.time.format.DateTimeFormatter;  
+import java.time.LocalDateTime;    
 
 public class PeerProcess {
 
@@ -13,6 +14,10 @@ public class PeerProcess {
     BufferedReader in;
     PrintWriter out; 
     HashMap<String,Peer> peerLog = new HashMap<String,Peer>();
+    HashMap<String,Vector<Peer>> sources = new HashMap<String,Vector<Peer>>();
+    HashMap<String,String> Dates = new HashMap<String,String>();
+
+    //ArrayList<String> sources = new ArrayList<String>();
     Scanner scan = new Scanner(System.in);
 
     public void runProcess(String address, int port, String teamName) {
@@ -53,7 +58,7 @@ public class PeerProcess {
                     
                     case "get report":
                         System.out.println(request);
-                        // Report handling goes here
+                        handleReportRequest();
                         break;
                     
                     case "close":
@@ -199,12 +204,40 @@ public class PeerProcess {
                 peer = in.readLine();
     
                 peerAddress = peer.split(":"); // Split the address and port number
+
                 
                 // Create a new peer object and add it to the HashMap
                 Peer temp = new Peer(); 
                 temp.address = peerAddress[0];
                 temp.port = Integer.parseInt(peerAddress[1]);
                 peerLog.putIfAbsent(peer, temp); // Add a new peer only if it doesn't already exist. Else, do nothing
+
+                DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");  
+                LocalDateTime now = LocalDateTime.now();
+                String date = dtf.format(now).toString();
+
+                if(sources.size() > 0){
+                    if(!sources.containsKey(socket.getRemoteSocketAddress().toString())){
+                        Vector<Peer> vec = new Vector<>();
+                        vec.add(temp);
+                        sources.put(socket.getRemoteSocketAddress().toString(),vec);
+                        Dates.putIfAbsent(socket.getRemoteSocketAddress().toString(), date);
+                          
+                    } else {
+                        sources.get(socket.getRemoteSocketAddress().toString()).add(temp);
+                        Dates.putIfAbsent(socket.getRemoteSocketAddress().toString(), date);
+                    }
+                } else {
+                    Vector<Peer> vec = new Vector<>();
+                    vec.add(temp);
+                    sources.put(socket.getRemoteSocketAddress().toString(),vec);
+                    Dates.putIfAbsent(socket.getRemoteSocketAddress().toString(), date);
+                }
+
+                System.out.println("IP addr: " + socket.getRemoteSocketAddress().toString());
+                System.out.println("Peer val: " + peer);
+                System.out.println("Peer log val" + peerLog.get(peer));
+                System.out.println("hash map size: " + peerLog.size());
     
             }
 
@@ -224,7 +257,54 @@ public class PeerProcess {
 
     }
 
+    // create a reponse report
+
     public void handleReportRequest() {
+
+        // number of peers
+        String numOfPeers = Integer.toString(peerLog.size());
+        System.out.println("Number of peers: " + numOfPeers);
+
+        //* num of peers 
+        String report = numOfPeers + "\n";
+
+        // peers
+        for(String key : peerLog.keySet()){
+            Peer temp = peerLog.get(key);
+            //* peers
+            report = report + temp.address + ":" + temp.port + "\n";
+            System.out.println(temp.address + ":" + temp.port);
+        }
+
+        // number of sources
+        ///* add the num of sources
+        report = report + Integer.toString(sources.size()) + "\n";
+        System.out.println("Number of sources: " + sources.size());
+
+        //Sources
+        for(String key : sources.keySet()){
+            
+            //* add the source location
+            report = report + key.substring(1)+ "\n";
+            System.out.println(key.substring(1));
+
+            //* add the date
+            report = report + Dates.get(key).toString() + "\n";
+            System.out.println(Dates.get(key).toString());
+
+            //* add the num of peers
+            report = report + Integer.toString(sources.get(key).size()) + "\n";
+            System.out.println(sources.get(key).size());
+
+            for(int i = 0; i < sources.get(key).size(); i++){
+                System.out.println(sources.get(key).get(i).address + ":" + sources.get(key).get(i).port);
+                //* add each peer for that source 
+                report = report + sources.get(key).get(i).address + ":" + sources.get(key).get(i).port + "\n";
+            }
+        }
+
+        out.print(report);
+        out.flush();
 
     }
 
