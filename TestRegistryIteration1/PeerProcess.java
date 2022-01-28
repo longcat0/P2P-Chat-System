@@ -3,8 +3,8 @@ import java.io.IOException;
 import java.net.Socket;
 import java.util.Scanner;
 import java.util.Vector;
+import java.util.concurrent.ConcurrentHashMap;
 
-import java.util.HashMap;
 import java.time.format.DateTimeFormatter;  
 import java.time.LocalDateTime;    
 
@@ -13,9 +13,9 @@ public class PeerProcess {
     Socket socket;
     BufferedReader in;
     PrintWriter out; 
-    HashMap<String,Peer> peerLog = new HashMap<String,Peer>();
-    HashMap<String,Vector<Peer>> sources = new HashMap<String,Vector<Peer>>();
-    HashMap<String,String> Dates = new HashMap<String,String>();
+    ConcurrentHashMap<String,Peer> peerLog = new ConcurrentHashMap<String,Peer>();
+    ConcurrentHashMap<String,Vector<Peer>> sources = new ConcurrentHashMap<String,Vector<Peer>>();
+    ConcurrentHashMap<String,String> Dates = new ConcurrentHashMap<String,String>();
 
     //ArrayList<String> sources = new ArrayList<String>();
     Scanner scan = new Scanner(System.in);
@@ -87,7 +87,7 @@ public class PeerProcess {
 
     /**
      * Handles a team name request by putting the team name in the appropriate format
-     * and then sending it to the server through the output stream
+     * and then sending it to the server through the Soutput stream
      * 
      * @param teamName
      */
@@ -224,7 +224,11 @@ public class PeerProcess {
                         Dates.putIfAbsent(socket.getRemoteSocketAddress().toString(), date);
                           
                     } else {
-                        sources.get(socket.getRemoteSocketAddress().toString()).add(temp);
+                        Boolean duplicate = false;
+                        for(Peer p : sources.get(socket.getRemoteSocketAddress().toString())) {
+                            if ((p.address).equals(temp.address)) duplicate = true;
+                        }
+                        if (!duplicate) sources.get(socket.getRemoteSocketAddress().toString()).add(temp);
                         Dates.putIfAbsent(socket.getRemoteSocketAddress().toString(), date);
                     }
                 } else {
