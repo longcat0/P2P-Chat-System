@@ -10,6 +10,7 @@ import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.UnknownHostException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Random;
 import java.util.Scanner;
@@ -17,6 +18,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.Vector;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.time.format.DateTimeFormatter;  
@@ -377,6 +379,7 @@ public class PeerProcess {
 
         //process.runProcess(address, port, teamName); // Reconnect to the server and send final report
 
+        System.out.println("Finish");
     }
 
     
@@ -385,9 +388,11 @@ public class PeerProcess {
 class UdpServer {
 
     private DatagramSocket udpSocket;
-    private volatile boolean running;
+    private boolean running;
     private ConcurrentHashMap<String,Peer> peerList = new ConcurrentHashMap<String,Peer>();
     private ConcurrentHashMap<String,Peer> activePeers;
+    private AtomicInteger timestamp = new AtomicInteger(); 
+
 
     public UdpServer(DatagramSocket server, ConcurrentHashMap<String,Peer> peers) {    
         
@@ -440,31 +445,28 @@ class UdpServer {
     class SenderThread implements Runnable {
 
         Scanner scan = new Scanner(System.in);
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");  
 
         public void run() {
             
             // Create task that sends peer message every 3 seconds
             Timer timer = new Timer();
             TimerTask task = new Send();
-            timer.scheduleAtFixedRate(task, 1000, 3000);
+            timer.scheduleAtFixedRate(task, 1000, 5000);
 
             SnippetSender snipSend = new SnippetSender();
             Thread t = new Thread(snipSend);
             t.start();
-            System.out.println("started writing");
-
-            try {
-                t.join();
-            } catch (InterruptedException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
             
+            while (!t.isInterrupted()) {
+                if (!running) {
+                    t.interrupt();
+                    timer.cancel();
+                    System.out.println("t is interrupted " + t.isInterrupted());
+                    scan.close();
 
-            timer.cancel();
-
-            scan.close();
-            System.out.println("Stopping sends");
+                }
+            }
         }
         
         class Send extends TimerTask {
@@ -479,11 +481,13 @@ class UdpServer {
                 for (String address : keys) { // Send the peer to all active peers 
         
                     try {
+
+                        //System.out.println("Sending " + randomPeer + " to " + address);
                         String message = "peer" + randomPeer;
                         InetAddress ipAddress = InetAddress.getByName(peerList.get(address).address);
                         DatagramPacket peerMessage = new DatagramPacket(message.getBytes(), message.getBytes().length, ipAddress, peerList.get(address).port);
                         udpSocket.send(peerMessage);
-                        System.out.println("Sent a message");
+    
                     } catch (UnknownHostException e) {
                         // TODO Auto-generated catch block
                         e.printStackTrace();
@@ -502,15 +506,35 @@ class UdpServer {
 
                 while(running) {
                     String snippet; 
-                    if(scan.hasNext()) {
-                        snippet = scan.nextLine();
-                        if (!snippet.replaceAll("\\s","").equals("")) { // Snippet message is not empty
-                            System.out.println("Your message: " + snippet);
+                    snippet = scan.nextLine();
+                    if (!snippet.replaceAll("\\s","").equals("")) { // Snippet message is not empty
+                        System.out.println("Your message: " + snippet);
+                        // LocalDateTime now = LocalDateTime.now();
+                        // String date = dtf.format(now).toString();
+                        int snippetTimestamp = timestamp.incrementAndGet();
+                        
+                        // Create snippet message in datagram packet 
+                        String snippetMsg = "snip" + snippetTimestamp + " " +  snippet;
+                        
+                        // Send the snippet to all active peers
+                        for (String address : activePeers.keySet()) {
+
+                            try {
+                                System.out.println("Sending snippet to " + address);
+                                InetAddress ipAddress = InetAddress.getByName(peerList.get(address).address);
+                                DatagramPacket peerMessage = new DatagramPacket(snippetMsg.getBytes(), snippetMsg.getBytes().length, ipAddress, peerList.get(address).port);
+                                udpSocket.send(peerMessage);
+                                System.out.println(snippetMsg);
+                                
+                            } catch (Exception e) {
+                                //TODO: handle exception
+                                e.printStackTrace();
+                            }
                         }
                     }
+                    
 
                 }
-                // Create snippet message in datagram packet 
                 // Send the snippet message 
             }
         }
@@ -519,11 +543,115 @@ class UdpServer {
     }
 
 
+
     class ReaderThread implements Runnable {
 
         public void run() {
-
+    
+            byte[] buf = new byte[256];
+            DatagramPacket receivedMsg = new DatagramPacket(buf, 256);
+            try {
+                udpSocket.setSoTimeout(1500);
+            } catch (SocketException e1) {
+                // TODO Auto-generated catch block
+                e1.printStackTrace();
+            }
+            while (running) { // Keep receiving packets 
+        
+                try {
+                    udpSocket.receive(receivedMsg);
+                    String message = new String(receivedMsg.getData(), receivedMsg.getOffset(), receivedMsg.getLength());
+                    String senderAddress = receivedMsg.getAddress().getHostAddress();
+                    int senderPort = receivedMsg.getPort();
+    
+                    MessageHandler handler = new MessageHandler(message, senderAddress, senderPort);
+                    Thread t = new Thread(handler);
+    
+                    t.start();
+    
+    
+                } catch (Exception e) {
+                    continue;
+                }
+    
+            }
+    
+            System.out.println("Reading stopped");
         }
+    
+        class MessageHandler implements Runnable {
+    
+            String message;
+            String senderAddress;
+            int senderPortNum;
+    
+            public MessageHandler(String message, String address, int portNum) {
+                this.message = message;
+                this.senderAddress = address;
+                this.senderPortNum = portNum;
+            }
+    
+    
+            public void run() {
+
+                System.out.println(message);
+    
+                if (message.equals("stop")) {
+                    // shutdown action
+                    running = false;
+                    System.out.println("Stopping");
+                    return;
+                }
+    
+                // not a stop message, so parse it
+                Pattern pattern1 = Pattern.compile("peer.*", Pattern.CASE_INSENSITIVE);
+                Pattern pattern2 = Pattern.compile("snip.*", Pattern.CASE_INSENSITIVE);
+    
+                Matcher match1 = pattern1.matcher(message);
+                Matcher match2 = pattern2.matcher(message);
+    
+                if (match1.find()) { // Peer message handling
+    
+                    message = message.replaceFirst("peer", ""); // Contains information about a third peer
+    
+                    String[] info = message.split(":");
+                    String peerAddress = info[0];
+                    int peerPortNum = Integer.parseInt(info[1]);
+    
+                    Peer tempPeer = new Peer();
+                    tempPeer.address = senderAddress;
+                    tempPeer.port = senderPortNum;
+
+                    //System.out.println("Got " + peerAddress + ":" + peerPortNum + " From " + senderAddress + ":" + senderPortNum);
+    
+                    // Add sender to the list of peers and active peers
+                    peerList.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
+                    activePeers.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
+
+    
+                    // Add the third peer to the list of peers
+                    Peer tempPeer2 = new Peer();
+                    tempPeer.address = peerAddress;
+                    tempPeer.port = peerPortNum;
+                    peerList.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
+            
+                } else if (match2.find()) { // Snippet message handling 
+                    
+                    message = message.replaceFirst("snip", ""); 
+
+                    String[] info = message.split(" ");
+                    int time = Integer.parseInt(info[0]);
+                    String content = info[1];
+
+                    timestamp.set(Math.max(timestamp.get(), time));
+    
+                    System.out.println(timestamp.get() + " " + content);
+
+                }
+    
+    
+            }
+         }
     }
 
 }
