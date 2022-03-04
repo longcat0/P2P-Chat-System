@@ -252,7 +252,7 @@ public class PeerProcess {
                     } else {
                         Boolean duplicate = false;
                         for(Peer p : sources.get(socket.getRemoteSocketAddress().toString())) {
-                            if ((p.address).equals(temp.address)) duplicate = true;
+                            if ((p.address + ":" + p.port).equals(temp.address + ":" + temp.port)) duplicate = true;
                         }
                         if (!duplicate) sources.get(socket.getRemoteSocketAddress().toString()).add(temp);
                         Dates.putIfAbsent(socket.getRemoteSocketAddress().toString(), date);
@@ -751,6 +751,7 @@ class UdpServer {
                     tempPeer2.address = peerAddress;
                     tempPeer2.port = peerPortNum;
                     peerList.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
+                    activePeers.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
 
                     // <source peer><space><received peer><space><date><newline>
 
