@@ -558,13 +558,16 @@ class UdpServer {
                 // Getting random peer to send
                 Random random = new Random();
                 ArrayList<String> keys = new ArrayList<>(activePeers.keySet());
-                String randomPeer = keys.get(random.nextInt(keys.size()));
+                String randomPeer = ""; 
+                if(!keys.isEmpty()) {
+                    randomPeer = keys.get(random.nextInt(keys.size()));
+                }
 
                 for (String address : keys) { // Send the peer to all active peers 
         
                     try {
 
-                        System.out.println("Sending " + randomPeer + " to " + address);
+                        // System.out.println("Sending " + randomPeer + " to " + address); // Indicate the peer that is being sent and who it is being sent to 
                         String message = "peer" + randomPeer;
                         InetAddress ipAddress = InetAddress.getByName(peerList.get(address).address);
                         DatagramPacket peerMessage = new DatagramPacket(message.getBytes(), message.getBytes().length, ipAddress, peerList.get(address).port);
@@ -610,7 +613,7 @@ class UdpServer {
                     String snippet; 
                     snippet = scan.nextLine();
                     if (!snippet.replaceAll("\\s","").equals("")) { // Snippet message is not empty
-                        System.out.println("Your message: " + snippet);
+                        // System.out.println("Your message: " + snippet); 
 
                         // if(snippet.equals("stop")){
                         //     running.set(true);
@@ -626,11 +629,11 @@ class UdpServer {
                         for (String address : activePeers.keySet()) {
 
                             try {
-                                System.out.println("Sending snippet to " + address);
+                                System.out.println("Sending snippet to " + address); // Indicating who the snippet is being sent to 
                                 InetAddress ipAddress = InetAddress.getByName(peerList.get(address).address);
                                 DatagramPacket peerMessage = new DatagramPacket(snippetMsg.getBytes(), snippetMsg.getBytes().length, ipAddress, peerList.get(address).port);
                                 udpSocket.send(peerMessage);
-                                System.out.println(snippetMsg);
+                                // System.out.println(snippetMsg); 
                                 
                             } catch (Exception e) {
                                 e.printStackTrace();
@@ -699,7 +702,7 @@ class UdpServer {
     
             public void run() {
 
-                System.out.println(message);
+                // System.out.println(message); // Print the received message
     
                 if (message.equals("stop")) {
                     // shutdown action
@@ -718,16 +721,17 @@ class UdpServer {
                 if (match1.find()) { // Peer message handling
     
                     message = message.replaceFirst("peer", ""); // Contains information about a third peer
-    
+                    
+                    System.out.println(message);
                     String[] info = message.split(":");
                     String peerAddress = info[0];
-                    int peerPortNum = Integer.parseInt(info[1]);
+                    int peerPortNum = Integer.parseInt(info[1].trim());
     
                     Peer tempPeer = new Peer();
                     tempPeer.address = senderAddress;
                     tempPeer.port = senderPortNum;
 
-                    System.out.println("Got " + peerAddress + ":" + peerPortNum + " From " + senderAddress + ":" + senderPortNum);
+                    // System.out.println("Got " + peerAddress + ":" + peerPortNum + " From " + senderAddress + ":" + senderPortNum); // Show the peer in the message and who it came from
     
                     // Add sender to the list of peers and active peers
                     peerList.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
@@ -775,7 +779,7 @@ class UdpServer {
                     
                     message = message.replaceFirst("snip", ""); 
 
-                    String[] info = message.split(" ");
+                    String[] info = message.split(" ", 2);
                     int time = Integer.parseInt(info[0]);
                     String content = info[1];
 
