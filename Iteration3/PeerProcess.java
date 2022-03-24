@@ -389,7 +389,7 @@ public class PeerProcess {
     public static void main(String[] args) {
         // Check if the correct number of arguments are provided
         if (args.length != 4) {
-			System.out.println("Please give provide three command-line arguments in the following order: IP address, TCP port number, team name, UDP port number");
+			System.out.println("Please give provide four command-line arguments in the following order: IP address, TCP port number, team name, UDP port number");
 			System.exit(0);
 		}
 
@@ -409,7 +409,7 @@ public class PeerProcess {
         // create a udp server and start it 
         try {
             DatagramSocket udpSocket = new DatagramSocket(udpPort);
-            process.server = new UdpServer(udpSocket, process.peerLog);
+            process.server = new UdpServer(udpSocket, process.peerLog, teamName);
         } catch (SocketException e) {
             e.printStackTrace();
             System.exit(1);
@@ -467,13 +467,15 @@ class UdpServer {
     // Used to keep track of the time stamps of the snippets message. AtomicInteger therefore threadsafe
     private AtomicInteger timestamp = new AtomicInteger(); 
 
+    private String teamName; 
 
-    public UdpServer(DatagramSocket server, ConcurrentHashMap<String,Peer> peers) {    
+    public UdpServer(DatagramSocket server, ConcurrentHashMap<String,Peer> peers, String teamName) {    
         
         AtomicBoolean running = new AtomicBoolean(true);
         // running = true;
         udpSocket = server;
         peerList = peers;
+        this.teamName = teamName;
 
     }
 
@@ -562,11 +564,12 @@ class UdpServer {
                     // To get out if the scan
                     System.console().writer().print(" ");
                     timer.cancel();
-                    System.out.println("t is interrupted " + t.isInterrupted());
                     // scan.close();
 
                 }
             }
+
+            System.out.println("Sending stopped");
         }
         
         // Responsible for sending peer messages
@@ -639,6 +642,7 @@ class UdpServer {
                     }
         
                 }
+
             }
         }
 
@@ -692,6 +696,8 @@ class UdpServer {
     // Handles all the messages recvd by this peer
     class ReaderThread implements Runnable {
 
+        boolean serverReceivedAck = false;
+
         public void run() {
     
             // Set the size of the message buffer
@@ -733,8 +739,64 @@ class UdpServer {
                 }
     
             }
+
+            // Deal with dropped ack messages and duplicate stop messages
+            // Wait for 5 seconds to receive stop message. If there are none within 5 seconds, then assume ack has successfully been sent
+        
+            // Set the socket to time out in 5s
+            try {
+                udpSocket.setSoTimeout(5000);
+            } catch (SocketException e1) {
+                e1.printStackTrace();
+            }
+
+            // Creating timer
+            Timer timer = new Timer();
+            TimerTask task = new AckTimer();
+
+            boolean resetTimer = true;
+
+            while(!serverReceivedAck) {
+
+                if (resetTimer) {
+                    // Timer for five seconds
+                    timer.schedule(task, 5000);
+                }
+
+                try {
+                    
+                    udpSocket.receive(receivedMsg);
+                    String message = new String(receivedMsg.getData(), receivedMsg.getOffset(), receivedMsg.getLength());
+                    // Store the senders ip addr
+                    String senderAddress = receivedMsg.getAddress().getHostAddress();
+                    //Store the sendets port num
+                    int senderPort = receivedMsg.getPort();
+                    if (message.equals("stop")) { // Got a duplicate stop message. Stop timer and resend ack message
+                        String ackMessage = "ack " + teamName;
+                        try {
+                            InetAddress ipAddress = InetAddress.getByName(senderAddress);
+                            DatagramPacket ackPacket = new DatagramPacket(ackMessage.getBytes(), ackMessage.getBytes().length, ipAddress, senderPort);
+                            udpSocket.send(ackPacket);             
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                        System.out.println("Resending ack message");
+                        resetTimer = true;
+                        timer.cancel();
+                    }
+    
+                } catch (Exception e) { // Socket timeout. Timer should not be rescheduled
+                    resetTimer = false;
+                }
+            }
     
             System.out.println("Reading stopped");
+        }
+
+        class AckTimer extends TimerTask {
+            public void run() {
+                serverReceivedAck = true;
+            }
         }
     
         // Parses a revcd message and does the apporiate action based on the message
@@ -758,9 +820,20 @@ class UdpServer {
     
                 // If the message is stop change the atomic boolean flag running to false so that the peer starts to shutdown the udp server
                 if (message.equals("stop")) {
+                    // Send ack message to the server (indicated by senderAddress and senderPortnum)
+                    String ackMessage = "ack " + teamName;
+                    try {
+                        InetAddress ipAddress = InetAddress.getByName(this.senderAddress);
+                        DatagramPacket ackPacket = new DatagramPacket(ackMessage.getBytes(), ackMessage.getBytes().length, ipAddress, this.senderPortNum);
+                        udpSocket.send(ackPacket);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println("Sending ack message");
                     // shutdown action
                     running.set(false);
                     System.out.println("Stopping");
+                
                     return;
                 }
     

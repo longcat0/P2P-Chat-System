@@ -156,12 +156,12 @@ public class Registry {
 						RequestProcessor.nextRun();
 						peers.clear();
 						done = false;
-						String[] argsForPeer = {"localhost","" + portNumber, "test"};
-						try {
-							peer.Iteration3Solution.main(argsForPeer);
-						} catch (Exception e) {
-							System.out.println("Problem running test peers");
-						}
+						// String[] argsForPeer = {"localhost","" + portNumber, "test"};
+						// try {
+						// 	peer.Iteration3Solution.main(argsForPeer);
+						// } catch (Exception e) {
+						// 	System.out.println("Problem running test peers");
+						// }
 					}
 				}, MINUTES_TO_WAIT_FOR_REPORT*60*1000);
 			}

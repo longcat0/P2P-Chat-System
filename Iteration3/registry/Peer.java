@@ -1,7 +1,7 @@
 package registry;
 public class Peer {
-	String address;
-	private int port;
+	public String address;
+	public int port;
 	String teamName;
 	boolean acked = false;
 	
