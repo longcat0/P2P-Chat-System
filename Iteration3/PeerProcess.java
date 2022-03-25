@@ -741,39 +741,33 @@ class UdpServer {
             }
 
             // Deal with dropped ack messages and duplicate stop messages
-            // Wait for 5 seconds to receive stop message. If there are none within 5 seconds, then assume ack has successfully been sent
-        
-            // Set the socket to time out in 5s
-            try {
-                udpSocket.setSoTimeout(5000);
-            } catch (SocketException e1) {
-                e1.printStackTrace();
-            }
+            // Wait for 6 seconds to receive stop message. If there are none within 6 seconds, then assume ack has successfully been sent
 
             // Creating timer
-            Timer timer = new Timer();
-            TimerTask task = new AckTimer();
-
             boolean resetTimer = true;
+            Timer timer = new Timer();
 
             while(!serverReceivedAck) {
 
                 if (resetTimer) {
-                    // Timer for five seconds
-                    timer.schedule(task, 5000);
+                    // Set timer for 6 seconds
+                    timer = new Timer();
+                    TimerTask task = new AckTimer();
+                    timer.schedule(task, 6000);
                 }
 
                 try {
                     
                     udpSocket.receive(receivedMsg);
+                    // Extract message from the udp packet
                     String message = new String(receivedMsg.getData(), receivedMsg.getOffset(), receivedMsg.getLength());
                     // Store the senders ip addr
                     String senderAddress = receivedMsg.getAddress().getHostAddress();
-                    //Store the sendets port num
+                    //Store the senders port num
                     int senderPort = receivedMsg.getPort();
                     if (message.equals("stop")) { // Got a duplicate stop message. Stop timer and resend ack message
                         String ackMessage = "ack " + teamName;
-                        try {
+                        try { // Send ack message to server
                             InetAddress ipAddress = InetAddress.getByName(senderAddress);
                             DatagramPacket ackPacket = new DatagramPacket(ackMessage.getBytes(), ackMessage.getBytes().length, ipAddress, senderPort);
                             udpSocket.send(ackPacket);             
@@ -781,6 +775,7 @@ class UdpServer {
                             e.printStackTrace();
                         }
                         System.out.println("Resending ack message");
+                        // Cancel the current timer task and set resetTimer to true so we can reset it
                         resetTimer = true;
                         timer.cancel();
                     }
@@ -795,7 +790,7 @@ class UdpServer {
 
         class AckTimer extends TimerTask {
             public void run() {
-                serverReceivedAck = true;
+                serverReceivedAck = true; // Assume that server has received the ack message and end
             }
         }
     
