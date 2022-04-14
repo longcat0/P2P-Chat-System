@@ -1,3 +1,10 @@
+
+/**
+ * Authors: 
+ * - Aron Mao
+ * - Ahad Hamirani
+ */
+
 import java.io.*;
 import java.io.IOException;
 import java.lang.reflect.Array;
