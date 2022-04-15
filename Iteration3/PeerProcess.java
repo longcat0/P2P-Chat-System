@@ -595,13 +595,15 @@ class UdpServer {
                     for(String addr : inactive_keys) {
                         timeOuts.putIfAbsent(addr, 0);
                         // If inactive_keys in active peers list add one to its time out
-                        if(activePeers.containsKey(addr)){
+                        if(peerList.containsKey(addr)){
                             // If timeout is greater than 4 it means no messages have been recvd by this peer for a while and therefore remove it from the active peers list
-                            if(timeOuts.get(addr) > 48) { // 4 min timeout 
+                            if(timeOuts.get(addr) > 4) { // 4 min timeout 
                                 System.out.println("*********************************************");
                                 System.out.println("Peer at addr: " + addr + " timed out");
                                 System.out.println("*********************************************");
-                                activePeers.remove(addr);
+                                //activePeers.remove(addr);
+                                peerList.get(addr).status = "inactive"; // Set the peer to be inactive 
+                                inactivePeers.remove(addr);
                                 timeOuts.remove(addr);
                             } else {
                                 System.out.println("--------");
@@ -616,7 +618,14 @@ class UdpServer {
 
                 // Getting random peer from the peer list to send
                 Random random = new Random();
-                ArrayList<String> keys = new ArrayList<>(activePeers.keySet());
+                // Iterate through the peer list and find all active peers
+                ArrayList<String> keys = new ArrayList<String>();
+                for (String peer : peerList.keySet()) {
+                    // Check peer status
+                    if (peerList.get(peer).status.equals("active")) {
+                        keys.add(peer);
+                    }   
+                }
                 String randomPeer = ""; 
                 if(!keys.isEmpty()) {
                     randomPeer = keys.get(random.nextInt(keys.size()));
@@ -869,12 +878,30 @@ class UdpServer {
                     Peer tempPeer = new Peer();
                     tempPeer.address = senderAddress;
                     tempPeer.port = senderPortNum;
+                    tempPeer.status = "active";
 
                     // System.out.println("Got " + peerAddress + ":" + peerPortNum + " From " + senderAddress + ":" + senderPortNum); // Show the peer in the message and who it came from
     
-                    // Add sender to the list of peers and active peers
-                    peerList.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
-                    activePeers.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
+                    // Add sender to the list of peers if it is not already in the list and update it 
+                    if (!peerList.containsKey(senderAddress + ":" + senderPortNum)) {
+                        System.out.println("New peer");
+                        // Add it to the list 
+                        peerList.put(senderAddress + ":" + senderPortNum, tempPeer);
+
+                        // Send it catchup messages
+                        System.out.println("Send ctchup to new peer");
+
+                    } else { // Already in the list but it's status is set to inactive 
+                        if (peerList.get(senderAddress + ":" + senderPortNum).status.equals("inactive")) {
+                            // Make the peer active again 
+                            peerList.get(senderAddress + ":" + senderPortNum).status = "active";
+                            // Send catchup messages
+                            System.out.println("Revived dead peer");
+
+                        }
+                    }
+                    //peerList.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
+                    //activePeers.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
 
                     // remove the peer from inactive peers list if its currently in it
                     if(inactivePeers.containsKey(senderAddress + ":" + senderPortNum)){
@@ -887,8 +914,28 @@ class UdpServer {
                     Peer tempPeer2 = new Peer();
                     tempPeer2.address = peerAddress;
                     tempPeer2.port = peerPortNum;
-                    peerList.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
-                    activePeers.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
+                    tempPeer2.status = "active";
+
+                    if (!peerList.containsKey(peerAddress + ":" + peerPortNum)) {
+                        System.out.println("New peer");
+                        // Add it to the list 
+                        peerList.put(peerAddress + ":" + peerPortNum, tempPeer2);
+
+                        // Send it catchup messages
+                        System.out.println("Send catchup to new peer");
+
+                    } else { // Already in the list but it's status is set to inactive 
+
+                        if (peerList.get(senderAddress + ":" + senderPortNum).status.equals("inactive")) {
+                            // Make the peer active again 
+                            peerList.get(senderAddress + ":" + senderPortNum).status = "active";
+                            // Send catchup messages
+                            System.out.println("Send catchup messages to revived peer");
+                        }
+
+                    }
+                    // peerList.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
+                    // activePeers.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
 
 
 
