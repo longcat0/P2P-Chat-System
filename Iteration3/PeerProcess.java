@@ -599,7 +599,7 @@ class UdpServer {
                         // If inactive_keys in active peers list add one to its time out
                         if(peerList.containsKey(addr)){
                             // If timeout is greater than 4 it means no messages have been recvd by this peer for a while and therefore remove it from the active peers list
-                            if(timeOuts.get(addr) > 4) { // 4 min timeout 
+                            if(timeOuts.get(addr) > 48) { // 4 min timeout 
                                 System.out.println("*********************************************");
                                 System.out.println("Peer at addr: " + addr + " timed out");
                                 System.out.println("*********************************************");
