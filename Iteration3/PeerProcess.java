@@ -19,6 +19,7 @@ import java.net.URL;
 import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Queue;
 import java.util.Random;
@@ -836,13 +837,31 @@ class UdpServer {
                 for (String message : snippetsRecvd) {
 
                     // Extract information from snippet
+                    // String[] parts = message.split(":");
+                    // String [] temp = parts[0].split(" ");
+                    // String senderAddress = temp[temp.length-1];
+                    // String senderPortNum = parts[1];
+                    
+                    // String[] temp3;
+                    // String[] temp2 = parts[0].split(" ",2);
+                    // String timestamp = temp2[0];
+                    // String content = temp2[1];
+
                     String[] snippetParts = message.split(" ");
-                    String timestamp = snippetParts[0];
-                    String content = snippetParts[1];
-                    String sender = snippetParts[2];
+                    ArrayList<String> temp = new ArrayList<>(Arrays.asList(snippetParts));
+
+                    String senderAddress = temp.get(temp.size() - 1);
+                    temp.remove(temp.size()-1);
+                    String timestamp = temp.get(0);
+                    temp.remove(0);
+
+                    String content = "";
+                    for (int i = 0; i < temp.size(); i++) {
+                        content += temp.get(0);
+                    }
 
                     // Create catchup message 
-                    String ctchMessage = "ctch " + sender + " " + timestamp + " " + content;
+                    String ctchMessage = "ctch " + senderAddress + " " + timestamp + " " + content;
 
                     // Send this message to the address and port number we have
 
@@ -1060,7 +1079,7 @@ class UdpServer {
                 } else if (ctchMatch.find()) { // Catchup snippets handling
 
                     // Parse the catchup snippet 
-                    String[] messageParts = message.split(" ");
+                    String[] messageParts = message.split(" ", 4);
                     String ogSender = messageParts[1];
                     String timeStamp = messageParts[2];
                     String content = messageParts[3];
