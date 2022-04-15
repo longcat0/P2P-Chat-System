@@ -243,6 +243,7 @@ public class PeerProcess {
                 Peer temp = new Peer(); 
                 temp.address = peerAddress[0];
                 temp.port = Integer.parseInt(peerAddress[1]);
+                temp.status = "active"; // Peer is assumed to be active 
                 peerLog.putIfAbsent(peer, temp); // Add a new peer only if it doesn't already exist. Else, do nothing
 
                 DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");  
@@ -455,6 +456,9 @@ class UdpServer {
     //  A thread safe queue that stores all the snippets recvd by the udp server 
     private Queue<String> snippetsRecvd = new ConcurrentLinkedQueue<String>();
 
+    // Thead safe queue storing all the ack messages received from other peers in the system
+    private Queue<String> acksRecvd = new ConcurrentLinkedQueue<String>();
+
     // A thread safe hashmap that stores all the peers known to this peer
     // The key is the addr -> ip:portnum
     private ConcurrentHashMap<String,Peer> peerList = new ConcurrentHashMap<String,Peer>();
@@ -516,7 +520,7 @@ class UdpServer {
     public ConcurrentHashMap<String,Peer> run() {
 
         // Create copy of the peers list. This copy will store the list of active peers while the original stores all peers
-        activePeers = new ConcurrentHashMap<String,Peer>(peerList);
+        activePeers = new ConcurrentHashMap<String,Peer>(peerList); // Don't need
         inactivePeers = new ConcurrentHashMap<String,Peer>();
         timeOuts = new HashMap<String, Integer>();
 
@@ -589,12 +593,11 @@ class UdpServer {
                 if(inactive_keys.size() > 0){
                     // Parse through the keys
                     for(String addr : inactive_keys) {
-                        // 
                         timeOuts.putIfAbsent(addr, 0);
                         // If inactive_keys in active peers list add one to its time out
                         if(activePeers.containsKey(addr)){
                             // If timeout is greater than 4 it means no messages have been recvd by this peer for a while and therefore remove it from the active peers list
-                            if(timeOuts.get(addr) > 4) {
+                            if(timeOuts.get(addr) > 48) { // 4 min timeout 
                                 System.out.println("*********************************************");
                                 System.out.println("Peer at addr: " + addr + " timed out");
                                 System.out.println("*********************************************");
@@ -611,7 +614,7 @@ class UdpServer {
                     }
                 }
 
-                // Getting random peer to send
+                // Getting random peer from the peer list to send
                 Random random = new Random();
                 ArrayList<String> keys = new ArrayList<>(activePeers.keySet());
                 String randomPeer = ""; 
@@ -842,12 +845,15 @@ class UdpServer {
                 // If the message is not a stop message, parse it
                 Pattern pattern1 = Pattern.compile("peer.*", Pattern.CASE_INSENSITIVE);
                 Pattern pattern2 = Pattern.compile("snip.*", Pattern.CASE_INSENSITIVE);
+                Pattern ackPattern = Pattern.compile("ack.*", Pattern.CASE_INSENSITIVE);
                 
                 // Peer msg message
                 Matcher match1 = pattern1.matcher(message);
                 
                 // Snippet message
                 Matcher match2 = pattern2.matcher(message);
+
+                Matcher ackMatch = ackPattern.matcher(message);
     
                 if (match1.find()) { // Peer message handling
     
@@ -917,6 +923,19 @@ class UdpServer {
     
                     System.out.println(timestamp.get() + " " + content);
 
+                    // Send ack message to the sender
+                    String ackResponse = "ack " + time; 
+                    try {
+                        InetAddress ipAddress = InetAddress.getByName(this.senderAddress);
+                        DatagramPacket ackPacket = new DatagramPacket(ackResponse.getBytes(), ackResponse.getBytes().length, ipAddress, this.senderPortNum);
+                        udpSocket.send(ackPacket);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println("Sent ack message for the snippet recvd");
+                    
+
+
                     // snippet -> <timestamp><space><content><space><source peer><newline>  
                     snippetsRecvd.add(timestamp + " " + content + " " + senderAddress + ":" + senderPortNum);
 
@@ -925,7 +944,10 @@ class UdpServer {
                     //     System.out.println(elem);
                     // }
                     // System.out.println("-----------");
+                    
 
+                } else if (ackMatch.find()) { // Snippet ack message handling   
+                    System.out.println("Got an ack message");
                 }
     
     
