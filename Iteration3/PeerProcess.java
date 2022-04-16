@@ -20,6 +20,7 @@ import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Queue;
 import java.util.Random;
@@ -38,6 +39,8 @@ import registry.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
   
 
 public class PeerProcess {
@@ -457,17 +460,10 @@ class UdpServer {
     //  A thread safe queue that stores all the snippets recvd by the udp server 
     private Queue<String> snippetsRecvd = new ConcurrentLinkedQueue<String>();
 
-
-    // Thead safe queue storing all the ack messages received from other peers in the system
-    //private Queue<String> acksRecvd = new ConcurrentLinkedQueue<String>();
-
     // A thread safe hashmap that stores all the peers known to this peer
     // The key is the addr -> ip:portnum
     private ConcurrentHashMap<String,Peer> peerList = new ConcurrentHashMap<String,Peer>();
 
-    // A thread safe hashmap that stores all active peers known to this peer
-    // The key is the addr -> ip:portnum
-    private ConcurrentHashMap<String,Peer> activePeers;
 
     // A thread safe hashmap that stores all the inactive peers known to this peer
     // The key is the addr -> ip:portnum
@@ -522,7 +518,6 @@ class UdpServer {
     public ConcurrentHashMap<String,Peer> run() {
 
         // Create copy of the peers list. This copy will store the list of active peers while the original stores all peers
-        activePeers = new ConcurrentHashMap<String,Peer>(peerList); // Don't need
         inactivePeers = new ConcurrentHashMap<String,Peer>();
         timeOuts = new HashMap<String, Integer>();
 
@@ -599,7 +594,7 @@ class UdpServer {
                         // If inactive_keys in active peers list add one to its time out
                         if(peerList.containsKey(addr)){
                             // If timeout is greater than 4 it means no messages have been recvd by this peer for a while and therefore remove it from the active peers list
-                            if(timeOuts.get(addr) > 48) { // 4 min timeout 
+                            if(timeOuts.get(addr) > 4) { // 4 min timeout 
                                 System.out.println("*********************************************");
                                 System.out.println("Peer at addr: " + addr + " timed out");
                                 System.out.println("*********************************************");
@@ -725,6 +720,7 @@ class UdpServer {
     class ReaderThread implements Runnable {
 
         boolean serverReceivedAck = false;
+        private final Lock lock = new ReentrantLock(true);
 
         public void run() {
     
@@ -836,17 +832,6 @@ class UdpServer {
                 // Iterate through messages in queue
                 for (String message : snippetsRecvd) {
 
-                    // Extract information from snippet
-                    // String[] parts = message.split(":");
-                    // String [] temp = parts[0].split(" ");
-                    // String senderAddress = temp[temp.length-1];
-                    // String senderPortNum = parts[1];
-                    
-                    // String[] temp3;
-                    // String[] temp2 = parts[0].split(" ",2);
-                    // String timestamp = temp2[0];
-                    // String content = temp2[1];
-
                     String[] snippetParts = message.split(" ");
                     ArrayList<String> temp = new ArrayList<>(Arrays.asList(snippetParts));
 
@@ -857,12 +842,13 @@ class UdpServer {
 
                     String content = "";
                     for (int i = 0; i < temp.size(); i++) {
-                        content += temp.get(0);
+                        content += temp.get(i);
+                        content += " ";
                     }
 
                     // Create catchup message 
                     String ctchMessage = "ctch " + senderAddress + " " + timestamp + " " + content;
-
+                    System.out.println("Sending: " + ctchMessage);
                     // Send this message to the address and port number we have
 
                     try {
@@ -1078,6 +1064,7 @@ class UdpServer {
 
                 } else if (ctchMatch.find()) { // Catchup snippets handling
 
+                    System.out.println("Incoming catchup: " + message);
                     // Parse the catchup snippet 
                     String[] messageParts = message.split(" ", 4);
                     String ogSender = messageParts[1];
@@ -1089,12 +1076,30 @@ class UdpServer {
                     timestamp.set(Math.max(timestamp.get(), time));
                     
                     // Create message
-                    String snippet = timestamp + " " + content + " " + ogSender + "\n";
-
-                    // Check if the message is not already in queue 
-                    if (!snippetsRecvd.contains(snippet)) {
-                        snippetsRecvd.add(snippet);
+                    String snippet = timeStamp + " " + content + " " + ogSender;
+                    
+                    lock.lock();
+                    try {
+                        // Check if the message is not already in queue 
+                        if (!snippetsRecvd.contains(snippet)) {
+                            System.out.println("Message is not in there");
+                            snippetsRecvd.add(snippet);
+                        }
+                        ArrayList<String> temp = new ArrayList<String>(snippetsRecvd);
+                        Collections.sort(temp);
+    
+                        for (String element : temp) {
+                            System.out.println(element);
+                        }
+    
+                        snippetsRecvd.clear();
+                        snippetsRecvd.addAll(temp);
+                    } catch (Exception e) {
+                        //TODO: handle exception
+                    } finally {
+                        lock.unlock();
                     }
+
 
                     System.out.println("Got catchup message");
                 }
