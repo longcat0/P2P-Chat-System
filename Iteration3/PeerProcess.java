@@ -19,6 +19,8 @@ import java.net.URL;
 import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Queue;
 import java.util.Random;
@@ -37,6 +39,8 @@ import registry.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
   
 
 public class PeerProcess {
@@ -243,6 +247,7 @@ public class PeerProcess {
                 Peer temp = new Peer(); 
                 temp.address = peerAddress[0];
                 temp.port = Integer.parseInt(peerAddress[1]);
+                temp.status = "alive"; // Peer is assumed to be active 
                 peerLog.putIfAbsent(peer, temp); // Add a new peer only if it doesn't already exist. Else, do nothing
 
                 DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");  
@@ -308,7 +313,7 @@ public class PeerProcess {
         for(String key : peerLog.keySet()){
             Peer temp = peerLog.get(key);
             //* peers
-            report = report + temp.address + ":" + temp.port + "\n";
+            report = report + temp.address + ":" + temp.port + " " + temp.status + "\n";
             System.out.println(temp.address + ":" + temp.port);
         }
 
@@ -459,9 +464,6 @@ class UdpServer {
     // The key is the addr -> ip:portnum
     private ConcurrentHashMap<String,Peer> peerList = new ConcurrentHashMap<String,Peer>();
 
-    // A thread safe hashmap that stores all active peers known to this peer
-    // The key is the addr -> ip:portnum
-    private ConcurrentHashMap<String,Peer> activePeers;
 
     // A thread safe hashmap that stores all the inactive peers known to this peer
     // The key is the addr -> ip:portnum
@@ -495,6 +497,13 @@ class UdpServer {
     }
 
     public Queue<String> getSnippetsRecvd(){
+        ArrayList<String> temp = new ArrayList<String>(this.snippetsRecvd);
+        Collections.sort(temp);
+        for (String element : temp) {
+            System.out.println(element);
+        }
+        this.snippetsRecvd.clear();
+        this.snippetsRecvd.addAll(temp);
         return this.snippetsRecvd;
     }
 
@@ -516,7 +525,6 @@ class UdpServer {
     public ConcurrentHashMap<String,Peer> run() {
 
         // Create copy of the peers list. This copy will store the list of active peers while the original stores all peers
-        activePeers = new ConcurrentHashMap<String,Peer>(peerList);
         inactivePeers = new ConcurrentHashMap<String,Peer>();
         timeOuts = new HashMap<String, Integer>();
 
@@ -589,16 +597,17 @@ class UdpServer {
                 if(inactive_keys.size() > 0){
                     // Parse through the keys
                     for(String addr : inactive_keys) {
-                        // 
                         timeOuts.putIfAbsent(addr, 0);
                         // If inactive_keys in active peers list add one to its time out
-                        if(activePeers.containsKey(addr)){
+                        if(peerList.containsKey(addr)){
                             // If timeout is greater than 4 it means no messages have been recvd by this peer for a while and therefore remove it from the active peers list
-                            if(timeOuts.get(addr) > 4) {
+                            if(timeOuts.get(addr) > 4) { // 4 min timeout 
                                 System.out.println("*********************************************");
                                 System.out.println("Peer at addr: " + addr + " timed out");
                                 System.out.println("*********************************************");
-                                activePeers.remove(addr);
+                                //activePeers.remove(addr);
+                                peerList.get(addr).status = "silent"; // Set the peer to be inactive 
+                                inactivePeers.remove(addr);
                                 timeOuts.remove(addr);
                             } else {
                                 System.out.println("--------");
@@ -611,9 +620,16 @@ class UdpServer {
                     }
                 }
 
-                // Getting random peer to send
+                // Getting random peer from the peer list to send
                 Random random = new Random();
-                ArrayList<String> keys = new ArrayList<>(activePeers.keySet());
+                // Iterate through the peer list and find all active peers
+                ArrayList<String> keys = new ArrayList<String>();
+                for (String peer : peerList.keySet()) {
+                    // Check peer status
+                    if (peerList.get(peer).status.equals("alive")) {
+                        keys.add(peer);
+                    }   
+                }
                 String randomPeer = ""; 
                 if(!keys.isEmpty()) {
                     randomPeer = keys.get(random.nextInt(keys.size()));
@@ -676,7 +692,14 @@ class UdpServer {
                         String snippetMsg = "snip" + snippetTimestamp + " " +  snippet;
                         
                         // Send the snippet to all active peers
-                        for (String address : activePeers.keySet()) {
+
+                        ArrayList<String> activeKeys = new ArrayList<String>();
+                        for (String address : peerList.keySet()) {
+                            if (peerList.get(address).status.equals("alive")) {
+                                activeKeys.add(address);
+                            }
+                        }
+                        for (String address : activeKeys) {
 
                             try {
                                 System.out.println("Sending snippet to " + address); // Indicating who the snippet is being sent to 
@@ -704,6 +727,7 @@ class UdpServer {
     class ReaderThread implements Runnable {
 
         boolean serverReceivedAck = false;
+        private final Lock lock = new ReentrantLock(true);
 
         public void run() {
     
@@ -801,6 +825,51 @@ class UdpServer {
             }
         }
     
+        class CatchUpMessageHandler implements Runnable {
+
+            private String address;
+            private int portNum;
+
+            public CatchUpMessageHandler(String address, int senderPortNum) {
+                this.address = address;
+                this.portNum = senderPortNum;
+            }
+
+            public void run() {
+                // Iterate through messages in queue
+                for (String message : snippetsRecvd) {
+
+                    String[] snippetParts = message.split(" ");
+                    ArrayList<String> temp = new ArrayList<>(Arrays.asList(snippetParts));
+
+                    String senderAddress = temp.get(temp.size() - 1);
+                    temp.remove(temp.size()-1);
+                    String timestamp = temp.get(0);
+                    temp.remove(0);
+
+                    String content = "";
+                    for (int i = 0; i < temp.size(); i++) {
+                        content += temp.get(i);
+                        content += " ";
+                    }
+
+                    // Create catchup message 
+                    String ctchMessage = "ctch " + senderAddress + " " + timestamp + " " + content;
+                    System.out.println("Sending: " + ctchMessage);
+                    // Send this message to the address and port number we have
+
+                    try {
+                        InetAddress ipAddress = InetAddress.getByName(this.address);
+                        DatagramPacket messagePacket = new DatagramPacket(ctchMessage.getBytes(), ctchMessage.getBytes().length, ipAddress, this.portNum);
+                        udpSocket.send(messagePacket);          
+                    } catch (Exception e) {
+                        //TODO: handle exception
+                    }
+
+                }
+            }
+        }
+
         // Parses a revcd message and does the apporiate action based on the message
         class MessageHandler implements Runnable {
     
@@ -808,6 +877,7 @@ class UdpServer {
             // Info of the peer that sent this message
             String senderAddress;
             int senderPortNum;
+
     
             public MessageHandler(String message, String address, int portNum) {
                 this.message = message;
@@ -842,12 +912,16 @@ class UdpServer {
                 // If the message is not a stop message, parse it
                 Pattern pattern1 = Pattern.compile("peer.*", Pattern.CASE_INSENSITIVE);
                 Pattern pattern2 = Pattern.compile("snip.*", Pattern.CASE_INSENSITIVE);
+                Pattern ctchPattern = Pattern.compile("ctch.*", Pattern.CASE_INSENSITIVE);
                 
                 // Peer msg message
                 Matcher match1 = pattern1.matcher(message);
                 
                 // Snippet message
                 Matcher match2 = pattern2.matcher(message);
+
+                // Catchup message
+                Matcher ctchMatch = ctchPattern.matcher(message);
     
                 if (match1.find()) { // Peer message handling
     
@@ -863,12 +937,33 @@ class UdpServer {
                     Peer tempPeer = new Peer();
                     tempPeer.address = senderAddress;
                     tempPeer.port = senderPortNum;
+                    tempPeer.status = "alive";
 
                     // System.out.println("Got " + peerAddress + ":" + peerPortNum + " From " + senderAddress + ":" + senderPortNum); // Show the peer in the message and who it came from
     
-                    // Add sender to the list of peers and active peers
-                    peerList.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
-                    activePeers.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
+                    // Add sender to the list of peers if it is not already in the list and update it 
+                    CatchUpMessageHandler catchUpSend = new CatchUpMessageHandler(senderAddress, senderPortNum);
+                    Thread t = new Thread(catchUpSend);
+                    if (!peerList.containsKey(senderAddress + ":" + senderPortNum)) {
+                        System.out.println("New peer");
+                        // Add it to the list 
+                        peerList.put(senderAddress + ":" + senderPortNum, tempPeer);
+
+                        // Send it catchup messages
+                        System.out.println("Send ctchup to new peer");
+                        t.start();
+                    } else { // Already in the list but it's status is set to inactive 
+                        if (peerList.get(senderAddress + ":" + senderPortNum).status.equals("inactive")) {
+                            // Make the peer active again 
+                            peerList.get(senderAddress + ":" + senderPortNum).status = "alive";
+                            // Send catchup messages
+                            System.out.println("Revived dead peer");
+                            t.start();
+
+                        }
+                    }
+                    //peerList.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
+                    //activePeers.putIfAbsent(senderAddress + ":" + senderPortNum, tempPeer);
 
                     // remove the peer from inactive peers list if its currently in it
                     if(inactivePeers.containsKey(senderAddress + ":" + senderPortNum)){
@@ -881,8 +976,42 @@ class UdpServer {
                     Peer tempPeer2 = new Peer();
                     tempPeer2.address = peerAddress;
                     tempPeer2.port = peerPortNum;
-                    peerList.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
-                    activePeers.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
+                    tempPeer2.status = "alive";
+
+                    CatchUpMessageHandler catchUp = new CatchUpMessageHandler(peerAddress, peerPortNum);
+                    Thread t2 = new Thread(catchUp);
+                    if (!peerList.containsKey(peerAddress + ":" + peerPortNum)) {
+                        System.out.println("New peer");
+                        // Add it to the list 
+                        peerList.put(peerAddress + ":" + peerPortNum, tempPeer2);
+
+                        // Send it catchup messages
+                        System.out.println("Send catchup to new peer");
+                        t2.start();
+
+                    } else { // Already in the list but it's status is set to inactive 
+
+                        if (peerList.get(senderAddress + ":" + senderPortNum).status.equals("inactive")) {
+                            // Make the peer active again 
+                            peerList.get(senderAddress + ":" + senderPortNum).status = "alive";
+                            // Send catchup messages
+                            System.out.println("Send catchup messages to revived peer");
+                            t2.start();
+                        }
+
+                    }
+
+
+                    try {
+                        t.join();
+                        t2.join();
+                    } catch (InterruptedException e) {
+                        // TODO Auto-generated catch block
+                        e.printStackTrace();
+                    }
+                    
+                    // peerList.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
+                    // activePeers.putIfAbsent(peerAddress + ":" + peerPortNum, tempPeer2);
 
 
 
@@ -917,6 +1046,19 @@ class UdpServer {
     
                     System.out.println(timestamp.get() + " " + content);
 
+                    // Send ack message to the sender
+                    // String ackResponse = "ack " + time; 
+                    // try {
+                    //     InetAddress ipAddress = InetAddress.getByName(this.senderAddress);
+                    //     DatagramPacket ackPacket = new DatagramPacket(ackResponse.getBytes(), ackResponse.getBytes().length, ipAddress, this.senderPortNum);
+                    //     udpSocket.send(ackPacket);
+                    // } catch (Exception e) {
+                    //     e.printStackTrace();
+                    // }
+                    // System.out.println("Sent ack message for the snippet recvd");
+                    
+
+
                     // snippet -> <timestamp><space><content><space><source peer><newline>  
                     snippetsRecvd.add(timestamp + " " + content + " " + senderAddress + ":" + senderPortNum);
 
@@ -925,11 +1067,40 @@ class UdpServer {
                     //     System.out.println(elem);
                     // }
                     // System.out.println("-----------");
+                    
 
+                } else if (ctchMatch.find()) { // Catchup snippets handling
+
+                    System.out.println("Incoming catchup: " + message);
+                    // Parse the catchup snippet 
+                    String[] messageParts = message.split(" ", 4);
+                    String ogSender = messageParts[1];
+                    String timeStamp = messageParts[2];
+                    String content = messageParts[3];
+
+                    // Update timestamp
+                    int time = Integer.parseInt(timeStamp);
+                    timestamp.set(Math.max(timestamp.get(), time));
+                    
+                    // Create message
+                    String snippet = timeStamp + " " + content + " " + ogSender;
+                    
+
+                        // Check if the message is not already in queue 
+                    if (!snippetsRecvd.contains(snippet)) {
+                        System.out.println("Message is not in there");
+                        snippetsRecvd.add(snippet);
+                    }
+
+
+                    System.out.println("Got catchup message");
                 }
     
-    
+                
             }
+
+
+
         }
     }
 

@@ -3,6 +3,7 @@ public class Peer {
 	public String address;
 	public int port;
 	String teamName;
+	public String status;
 	boolean acked = false;
 	
 	Peer[] peersSent = null;
