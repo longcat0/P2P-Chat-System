@@ -497,6 +497,13 @@ class UdpServer {
     }
 
     public Queue<String> getSnippetsRecvd(){
+        ArrayList<String> temp = new ArrayList<String>(this.snippetsRecvd);
+        Collections.sort(temp);
+        for (String element : temp) {
+            System.out.println(element);
+        }
+        this.snippetsRecvd.clear();
+        this.snippetsRecvd.addAll(temp);
         return this.snippetsRecvd;
     }
 
@@ -1078,26 +1085,11 @@ class UdpServer {
                     // Create message
                     String snippet = timeStamp + " " + content + " " + ogSender;
                     
-                    lock.lock();
-                    try {
+
                         // Check if the message is not already in queue 
-                        if (!snippetsRecvd.contains(snippet)) {
-                            System.out.println("Message is not in there");
-                            snippetsRecvd.add(snippet);
-                        }
-                        ArrayList<String> temp = new ArrayList<String>(snippetsRecvd);
-                        Collections.sort(temp);
-    
-                        for (String element : temp) {
-                            System.out.println(element);
-                        }
-    
-                        snippetsRecvd.clear();
-                        snippetsRecvd.addAll(temp);
-                    } catch (Exception e) {
-                        //TODO: handle exception
-                    } finally {
-                        lock.unlock();
+                    if (!snippetsRecvd.contains(snippet)) {
+                        System.out.println("Message is not in there");
+                        snippetsRecvd.add(snippet);
                     }
 
 
